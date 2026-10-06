@@ -35,6 +35,18 @@ When implementation provides lint or format checks, `scripts/ci.sh` should run t
 
 `scripts/ci.sh` runs the required deterministic stages in a fixed order and must not require remote AI providers.
 
+## Target Toolchain Matrix
+
+zentinel builds with its native Zig `0.16.0` but mutation-tests projects on any stable Zig `0.13.x` through `0.16.x` (ADR-0010, `docs/ZIG_VERSION_POLICY.md`). The `target-zig-matrix` job in `.github/workflows/ci.yml` covers that contract: for each supported minor's latest patch (`0.13.0`, `0.14.1`, `0.15.2`, `0.16.0`) it builds zentinel natively, makes the target toolchain the active `zig`, and runs:
+
+```bash
+scripts/e2e-zig-matrix.sh <target-version>
+```
+
+The script mutation-tests the portable fixture `test/fixtures/projects/zig_compat_sample` and asserts the report names the target version, at least one mutant is killed and one survives, a mismatched `[zig] version` is rejected, the ZIR backend stays native-only, and (for `0.13`/`0.14`) a `usingnamespace` file fails fast with an exclude hint. Actions in this job are pinned to full commit SHAs. The job must be extended whenever the target range moves.
+
+Locally, `scripts/docker-dev.sh scripts/e2e-zig-matrix.sh` runs the whole matrix offline in the dev image (`docker/dev.Dockerfile`), which carries all four toolchains.
+
 ## Mutation Fixture Job
 
 Once Phase 1 exists:

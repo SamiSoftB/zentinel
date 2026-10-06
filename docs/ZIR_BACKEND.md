@@ -50,7 +50,7 @@ Zig compiler frontend data
 
 The ZIR backend must not bypass the shared runner or reporter.
 
-The backend targets pinned Zig `0.16.0`. Because the `pl_node.src_node` decoding is coupled to that exact toolchain, `listFromTrees` actively declines (`error.UnsupportedZigVersion`, surfaced as a clear `--backend zir` diagnostic) on any other version — including a same-version nightly or a missing Zig — via `toolchainSupported`, rather than risk silent mis-resolution on a moving release. As a standing cross-check, `differentialOracle` compares the ZIR-recognized binary-operator set against the AST recognizers' set; a test sweeps it over `src/` on every `zig build test`, asserting the invariant that ZIR never recognizes a site the AST backend misses — and, with maximum matching, full parity (ZIR == AST, zero residual).
+The backend targets pinned Zig `0.16.0`. Because the `pl_node.src_node` decoding is coupled to that exact toolchain, `listFromTrees` actively declines (`error.UnsupportedZigVersion`, surfaced as a clear `--backend zir` diagnostic) on any other version — including a same-version nightly, a missing Zig, or an older *target* toolchain that the AST backend supports (`0.13.x`-`0.15.x`, ADR-0010) — via `toolchainSupported`, which checks `zig_version.isNative` rather than the target range, so widening the target range never widens this gate. As a standing cross-check, `differentialOracle` compares the ZIR-recognized binary-operator set against the AST recognizers' set; a test sweeps it over `src/` on every `zig build test`, asserting the invariant that ZIR never recognizes a site the AST backend misses — and, with maximum matching, full parity (ZIR == AST, zero residual).
 
 ## Source Mapping Strategy
 

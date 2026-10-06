@@ -13,7 +13,7 @@ The AST backend parses Zig source, identifies syntactic mutation candidates, map
 | Default status | Enabled by default once Phase 1 is complete. |
 | Report stability | Stable fields and operator names. |
 | Source mapping | Required for every mutant. |
-| Zig version coupling | Coupled to pinned Zig `0.16.0` syntax only. |
+| Zig version coupling | Parses with the native Zig `0.16.0` grammar for every supported target (`0.13.x`-`0.16.x`, ADR-0010). |
 | Failure mode | Clear diagnostic; no silent candidate loss. |
 
 ## Architecture
@@ -43,6 +43,10 @@ The parser layer is built on Zig's standard-library parser (`std.zig.Ast`) for t
 - The `std.zig.Ast` API surface is verified against an installed Zig `0.16.0`, recording the exact entry points used: the parse function, the node tag enumeration, token/source-location accessors, and any node-data accessors needed for span extraction.
 - The parser adapter wraps these entry points behind zentinel's own interface so a future Zig pin change is isolated to one module.
 - If the pinned `std.zig.Ast` API is unavailable or does not provide what a recognizer needs, the work stops and the limitation is recorded explicitly instead of guessing or silently degrading source mapping.
+
+### Older target grammars
+
+The parser is always the native `0.16.0` `std.zig.Ast`, also for projects on an older supported target Zig (ADR-0010). Target grammars `0.13`-`0.16` differ from it in one known way: Zig `0.15` removed `usingnamespace` and `async`/`await`. A `0.13`/`0.14` source that still uses them fails with `ZNTL_BACKEND_PARSE_ERROR` naming the file, plus a hint to add it to `[project] exclude`; the file is never skipped silently. All other differences between those releases are semantic, not grammatical, so the parser accepts them.
 
 ## Source Mapping Strategy
 
@@ -80,7 +84,7 @@ emits:
 
 | Risk | Mitigation |
 | --- | --- |
-| Zig grammar changes | Pinned Zig `0.16.0` policy and version gate. |
+| Zig grammar changes | Native Zig `0.16.0` parser, a verified target range, and a fail-fast exclude hint for removed `0.13`/`0.14` syntax. |
 | Precedence changes | Renderer tests for each operator. |
 | Same-file tests mutated accidentally | AST traversal excludes `test` bodies by default. |
 | Formatting churn | Minimal token replacement only. |

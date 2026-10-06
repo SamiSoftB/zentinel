@@ -44,7 +44,7 @@ INTERNAL
 | `ZNTL_CONFIG_INVALID_COMMAND` | Config | Configured test command cannot be parsed by zentinel's shell-free command grammar. |
 | `ZNTL_CONFIG_EXPERIMENTAL_BACKEND` | Config | ZIR selected without explicit experimental opt-in. |
 | `ZNTL_ZIG_NOT_FOUND` | Zig version | Zig executable could not be found. |
-| `ZNTL_ZIG_UNSUPPORTED_VERSION` | Zig version | Discovered Zig version is not the pinned supported Zig version for this zentinel release. |
+| `ZNTL_ZIG_UNSUPPORTED_VERSION` | Zig version | Discovered Zig version is outside the supported target range (stable `0.13.x` through `0.16.x`), is a pre-release, or does not equal the configured `[zig] version` (ADR-0010). |
 | `ZNTL_ZIR_UNSUPPORTED` | ZIR backend | Experimental ZIR backend cannot map an operator site to a ZIR instruction; emitted as an out-of-report diagnostic, never a mutant. |
 | `ZNTL_DIFF_SCOPE_FAILED` | Diff scope | Changed files could not be derived from git (e.g. not a git repository); pass `--scope-files` to supply an explicit list. |
 | `ZNTL_DIFF_SCOPE_EMPTY` | Diff scope | Diff scope matched no eligible source files; the run proceeds with 0 mutants. Advisory note, not a failure. |

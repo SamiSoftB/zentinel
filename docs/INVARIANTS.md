@@ -60,10 +60,10 @@ When code, tests, or docs cite an invariant, use the exact number, for example:
 - *Enforcement.* Config validation tests and backend selection tests.
 - *Failure mode.* Default runs become version-fragile or emit unstable source spans.
 
-**I-006.** zentinel supports exactly Zig `0.16.0` for this zentinel version.
-- *Rationale.* Supporting multiple Zig versions multiplies parser, semantic, and fixture ambiguity; pinning one version keeps autonomous implementation reproducible.
+**I-006.** zentinel builds with exactly Zig `0.16.0` (its native toolchain) and mutation-tests projects only on a declared, verified target range: stable Zig `0.13.x` through `0.16.x`. The discovered target `zig version` must equal the configured `[zig] version`.
+- *Rationale.* zentinel's own source depends on one Zig's standard library, so the native toolchain stays a single pin. Its coupling to the target toolchain (classified test output, command-line flags, source grammar) is narrow and verified per supported minor, so a declared range stays reproducible while a never-inferred, exact `[zig] version` keeps reports and cache keys naming the compiler that ran.
 - *Status.* documented.
-- *Enforcement.* Zig version validation tests and ADR-0007.
+- *Enforcement.* Zig version validation tests, `scripts/e2e-zig-matrix.sh` (the `target-zig-matrix` CI job), and ADR-0010 (superseding ADR-0007).
 - *Failure mode.* Agents implement compatibility branches that are not tested or documented.
 
 **I-022.** Deterministic core modules do not import side-effect or advisory adapters.

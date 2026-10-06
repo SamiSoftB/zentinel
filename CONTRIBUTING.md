@@ -7,10 +7,13 @@ orientation to the codebase, read [`AGENTS.md`](AGENTS.md) and
 
 ## Prerequisites
 
-- **Zig 0.16.0**, exactly. zentinel pins a single Zig version per release
-  because pre-1.0 Zig changes quickly; see
+- **Zig 0.16.0**, exactly, to build zentinel. zentinel builds with a single
+  pinned Zig because pre-1.0 Zig changes quickly; the projects it tests may use
+  any stable Zig 0.13.x through 0.16.x. See
   [`docs/ZIG_VERSION_POLICY.md`](docs/ZIG_VERSION_POLICY.md).
 - A POSIX shell to run the helper scripts under `scripts/`.
+- Optionally Docker (or Rancher Desktop / Podman with a Docker-compatible CLI)
+  for the containerized workflow below.
 
 ## Build and test
 
@@ -24,6 +27,23 @@ scripts/ci.sh                      # full local CI: fmt, build, tests, dogfood
 `scripts/ci.sh` mirrors what CI runs, so a green `scripts/ci.sh` is the bar a
 pull request must clear. zentinel also runs on itself —
 `scripts/dogfood.sh` — which is a good way to see the tool in action.
+
+### Containerized workflow
+
+When Zig cannot build natively on your machine, or to test against every
+supported target toolchain at once, use the dev image
+(`docker/dev.Dockerfile`). It carries Zig 0.16.0 (default) plus the target
+toolchains 0.15.2, 0.14.1 and 0.13.0 under `/opt/zig-<version>`, each verified
+against a pinned SHA-256 and Zig's minisign signature:
+
+```sh
+scripts/docker-dev.sh scripts/ci.sh              # full local CI on Linux
+scripts/docker-dev.sh scripts/e2e-zig-matrix.sh  # end-to-end on Zig 0.13-0.16
+```
+
+Commands run offline (`--network none`) as your own uid with the repository
+bind-mounted at `/work`; Zig caches live in named Docker volumes. Set
+`ZENTINEL_DEV_REBUILD=1` to rebuild the image after changing the Dockerfile.
 
 ## How we work
 

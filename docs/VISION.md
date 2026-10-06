@@ -26,7 +26,7 @@ It must do that with deterministic execution, precise source mapping, actionable
 | Principle | Requirement |
 | --- | --- |
 | Zig-native first | Use Zig's syntax, build model, testing conventions, and compiler behavior as the design center. |
-| Pinned Zig 0.16.0 only | Support exactly Zig `0.16.0` for this zentinel version. Other Zig versions are not compatibility targets until a future ADR changes the pin. |
+| Pinned native Zig, declared target range | Build with exactly Zig `0.16.0`; mutation-test projects on stable Zig `0.13.x` through `0.16.x` (ADR-0010). Other Zig versions are not compatibility targets until a future ADR moves the range. |
 | Deterministic core | Mutation generation, execution, result classification, IDs, reports, and cache keys must be reproducible. |
 | TDD-first development | Every behavior begins with a failing test or fixture before implementation. |
 | Phased delivery | Stable AST-based capability ships before experimental compiler IR backends. |

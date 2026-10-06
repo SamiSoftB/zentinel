@@ -34,7 +34,7 @@ Every command listed in `--help` is implemented. The frozen Phase 0 `dispatch` s
 
 zentinel embeds the `std.zig.Ast` parser, so mutant *generation* never shells out to `zig`. The external `zig` binary is only needed to compile and run code. Each command falls into exactly one of three groups; a new command MUST be placed in one of them explicitly (this is the authoritative list — `FAILURE_MODES.md` F-001 references it):
 
-- **Require the external `zig` binary** — the command aborts before project analysis when `zig` is absent or its version is outside the pinned `0.16.0` policy:
+- **Require the external `zig` binary** — the command aborts before project analysis when `zig` is absent or its version is outside the supported target range (stable `0.13.x` through `0.16.x`) or differs from the configured `[zig] version` (`docs/ZIG_VERSION_POLICY.md`):
   - `check` — exits `2` with `ZNTL_ZIG_NOT_FOUND` before analysis; reporting the discovered Zig's compatibility is the command's whole job.
   - `run` — pre-flights the Zig version gate (`zig_version.fatalStatusLine`) before mutating, because it compiles and runs the test suite.
   - `doctest` and `doctest --mutate` — pre-flight the same gate, because they compile and run extracted documentation code.

@@ -59,7 +59,7 @@ exclude = [".zig-cache/**", "zig-out/**", "test/**"]
 
 # Zig toolchain policy.
 [zig]
-# Only accepted Zig policy version for this zentinel release.
+# Target Zig release (stable 0.13.0 through 0.16.x); must match `zig version`.
 version = "0.16.0"
 # Optimization/safety modes to run: Debug, ReleaseSafe, ReleaseFast, ReleaseSmall.
 modes = ["Debug"]
@@ -151,6 +151,17 @@ bogus = "x"
 ZNTL_CONFIG_UNKNOWN_KEY
 ```
 
+A Zig version outside the supported target range (`0.13.0` through `0.16.x`) is rejected:
+
+```toml config_fail
+[zig]
+version = "0.17.0"
+```
+
+```text output contains
+ZNTL_CONFIG_INVALID_VALUE
+```
+
 ## Project Section
 
 | Key | Type | Default | Meaning |
@@ -168,8 +179,17 @@ The default exclude list is exact for v1. Agents must not silently add or remove
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `version` | string | `0.16.0` | Only accepted policy value for this zentinel version. |
+| `version` | string | `0.16.0` | Target Zig release the project's tests run on: an exact stable release from `0.13.0` through `0.16.x`. The discovered `zig version` must equal it. |
 | `modes` | list(enum) | `["Debug"]` | Zig optimization/safety modes to execute. |
+
+`version` is never an alias (`latest`, `latest-stable`) and never a pre-release. zentinel itself always builds with Zig `0.16.0`; `version` selects only the *target* toolchain contract (ADR-0010, `docs/ZIG_VERSION_POLICY.md`). A project on an older supported Zig declares it explicitly:
+
+```toml config
+[zig]
+version = "0.13.0"
+```
+
+On a `0.13`/`0.14` target, sources that use `usingnamespace` or `async`/`await` cannot be parsed by zentinel's `0.16.0` parser; list them in `[project] exclude`.
 
 Allowed modes:
 

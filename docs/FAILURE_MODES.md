@@ -27,7 +27,7 @@ Each failure mode has:
 
 **F-002. Unsupported Zig version**
 - *Phase.* Zig version.
-- *Expected outcome.* Clear diagnostic explaining the pinned Zig `0.16.0` policy. The commands that require the external Zig binary (`check`, `run`, `doctest`) fail before project analysis; `zentinel version` reports the mismatch as non-fatal environment status.
+- *Expected outcome.* Clear diagnostic naming the detected version and the supported target range (stable Zig `0.13.x` through `0.16.x`), or, when a supported Zig differs from the configured `[zig] version`, naming both and how to resolve it. The commands that require the external Zig binary (`check`, `run`, `doctest`) fail before project analysis; `zentinel version` reports the mismatch as non-fatal environment status.
 - *Code/status.* `ZNTL_ZIG_UNSUPPORTED_VERSION`.
 - *Invariants stressed.* I-006.
 - *Required test surface.* Version-policy test with stubbed older version.

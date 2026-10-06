@@ -3,9 +3,11 @@
 ## Supported versions
 
 zentinel is pre-1.0 and under active development. Security fixes are applied to
-the latest released version and `main`. Each release pins a single supported Zig
-version (currently **0.16.0**); see
-[`docs/ZIG_VERSION_POLICY.md`](docs/ZIG_VERSION_POLICY.md).
+the latest released version and `main`. Each release builds with a single
+pinned Zig version (currently **0.16.0**) and mutation-tests projects on a
+declared range of target Zig versions (currently stable **0.13.x through
+0.16.x**); see [`docs/ZIG_VERSION_POLICY.md`](docs/ZIG_VERSION_POLICY.md).
+Zig 0.13 through 0.15 themselves no longer receive upstream fixes.
 
 | Version | Supported |
 |---|---|

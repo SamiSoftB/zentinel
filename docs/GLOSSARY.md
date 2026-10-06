@@ -66,7 +66,9 @@ When a new concept becomes part of the public contract, add it here before using
 
 **Oracle**: A source of truth for pass/fail or kill/survive classification. In zentinel, only deterministic command evidence is an oracle. AI is never an oracle.
 
-**Pinned Zig version**: The only Zig compiler version supported by one zentinel release. For this zentinel version the pin is Zig `0.16.0`.
+**Pinned Zig version** (native Zig version): The one Zig compiler version a zentinel release is built with, and the only one the version-coupled ZIR backend accepts. For this zentinel version the pin is Zig `0.16.0`.
+
+**Target Zig version**: The Zig compiler that builds and runs the tests of the project being mutation-tested, declared in `[zig] version`. Any stable Zig `0.13.x` through `0.16.x` (ADR-0010); the discovered `zig version` must equal it.
 
 **Port or adapter**: A boundary module that connects the deterministic core to CLI/editor/CI presentation, filesystem or process side effects, sandbox/cache/report I/O, or advisory AI providers.
 

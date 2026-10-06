@@ -16,7 +16,7 @@ This document records what zentinel will not do, so rejected directions are not 
 - **A code coverage product. [never]** Coverage can inform gaps, but the product promise is mutation evidence, not line coverage.
 - **A multi-language mutation framework. [never]** zentinel is Zig-native. Other languages are separate products.
 - **An AI correctness judge. [never]** AI may explain evidence. It may not decide killed, survived, compile_error, compiler_crash, invalid, skipped, or equivalent.
-- **Zig versions other than the pinned supported version. [never]** zentinel targets only Zig `0.16.0` for this version unless a future ADR changes the pin.
+- **Zig versions outside the declared support range. [never]** zentinel builds with Zig `0.16.0` and mutation-tests projects only on stable Zig `0.13.x` through `0.16.x` (ADR-0010); other versions, and nightly builds, are not targets unless a future ADR moves the range.
 - **Preview mutator implementation in the minimum complete product. [not v1]** Preview mutators are documented design targets and fixture/doc backlog candidates, not part of end-to-end v1 implementation until explicitly stabilized.
 - **An always-online service. [never]** The deterministic core must work offline and in CI without remote AI providers.
 

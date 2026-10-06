@@ -11,6 +11,24 @@ change between minor versions; breaking changes are called out here.
 
 ### Added
 
+- **Projects on Zig 0.13 through 0.16.** zentinel still builds with Zig 0.16.0,
+  but now mutation-tests projects on any stable Zig `0.13.x`–`0.16.x`
+  (ADR-0010, superseding ADR-0007). Declare the target in `[zig] version`
+  (e.g. `"0.13.0"`); `run`, `check` and `doctest` require the discovered
+  `zig version` to match it exactly, and `zentinel init` writes the discovered
+  in-range version. On 0.13/0.14 projects, files that use `usingnamespace` or
+  `async`/`await` (which zentinel's 0.16 parser cannot read) fail fast with a
+  hint to add them to `[project] exclude`. The experimental ZIR backend remains
+  Zig 0.16.0-only.
+- `scripts/e2e-zig-matrix.sh` and a `target-zig-matrix` CI job (actions pinned
+  to commit SHAs) run an end-to-end mutation run against Zig 0.13.0, 0.14.1,
+  0.15.2 and 0.16.0 using the portable fixture
+  `test/fixtures/projects/zig_compat_sample`.
+- `docker/dev.Dockerfile` and `scripts/docker-dev.sh`: an offline,
+  supply-chain-pinned dev image (digest-pinned base, snapshot-pinned apt
+  packages, SHA-256 + minisign-verified Zig toolchains) for building and
+  testing where Zig cannot run natively.
+
 - `zentinel init` now writes a **commented** config — each section and key has a
   short inline `#` comment explaining its purpose.
 - A real JSON-Schema validation test wires `schemas/report.v1.schema.json` and
@@ -22,6 +40,13 @@ change between minor versions; breaking changes are called out here.
 
 - CI now runs on a Linux/macOS/Windows matrix (Windows is advisory and
   non-blocking) instead of Linux only.
+- `zig version` discovery now runs from the effective project root with the
+  minimal command environment and bounded output, so the compiler zentinel
+  validates and records is the one the tests run (previously it used the
+  process cwd and the full developer environment).
+- `ZNTL_ZIG_UNSUPPORTED_VERSION` now also covers a supported Zig that differs
+  from the configured `[zig] version`; its messages name the supported range
+  (`0.13.x through 0.16.x`) instead of a single required version.
 
 
 ## [0.1.0] - 2026-06-24

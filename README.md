@@ -12,7 +12,8 @@ whether they would *notice if it broke*.
 
 ## Status
 
-- Requires **Zig 0.16.0** (pinned; pre-1.0 Zig changes quickly, and zentinel tracks it release by release).
+- **Builds with Zig 0.16.0** (pinned; pre-1.0 Zig changes quickly, and zentinel tracks it release by release).
+- **Mutation-tests projects on Zig 0.13 through 0.16** (any stable `0.13.x`–`0.16.x`): zentinel runs your project's own test command with your project's own Zig. See [Projects on older Zig](#projects-on-older-zig).
 - The **AST backend is the stable default**. A ZIR-based backend exists for cross-checking mutation sites against the compiler's intermediate representation; ZIR is an unstable internal compiler format, so this backend is validated per Zig release and should be considered advanced/experimental.
 - AI-assisted features are **opt-in and disabled by default**. The core pipeline is deterministic and runs fully offline.
 
@@ -115,6 +116,30 @@ enabled = false     # advisory AI is opt-in; nothing leaves your machine by defa
 ```
 
 Full reference: [docs/CONFIG_SPEC.md](docs/CONFIG_SPEC.md).
+
+## Projects on older Zig
+
+zentinel itself is built with Zig 0.16.0, but the project you mutation-test can
+use any stable Zig from 0.13.x through 0.16.x. Build zentinel once, then run it
+with your project's toolchain first on `PATH` and declare that toolchain in
+`zentinel.toml`:
+
+```toml
+[zig]
+version = "0.13.0"   # must equal `zig version` in your project root
+```
+
+`zentinel init` writes the discovered version for you. zentinel checks
+`zig version` from your project root with the same minimal environment the tests
+run in, and refuses to run if it does not match the declared version, so reports
+and caches always name the compiler that actually ran.
+
+One limitation applies to Zig 0.13 and 0.14 projects: zentinel parses sources
+with the Zig 0.16 grammar, which no longer accepts `usingnamespace` or
+`async`/`await`. A file that uses them stops the run with
+`ZNTL_BACKEND_PARSE_ERROR` and a hint; add it to `[project] exclude`. The
+experimental ZIR backend requires Zig 0.16.0 exactly. Details:
+[docs/ZIG_VERSION_POLICY.md](docs/ZIG_VERSION_POLICY.md).
 
 ## Doctest verification
 
