@@ -1,0 +1,3 @@
+# Only docker/install-zig.sh is needed in the build context.
+*
+!docker/install-zig.sh
