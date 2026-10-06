@@ -13,7 +13,7 @@ exclude = [".zig-cache/**", "zig-out/**", "test/**"]
 
 # Zig toolchain policy.
 [zig]
-# Only accepted Zig policy version for this zentinel release.
+# Target Zig release (stable 0.13.0 through 0.16.x); must match `zig version`.
 version = "0.16.0"
 # Optimization/safety modes to run: Debug, ReleaseSafe, ReleaseFast, ReleaseSmall.
 modes = ["Debug"]

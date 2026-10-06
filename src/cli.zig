@@ -25,12 +25,12 @@ pub fn run(
     parent_env: *const std.process.Environ.Map,
 ) !u8 {
     switch (zentinel.route(args)) {
-        .passthrough => return runPassthrough(gpa, io, dir, args, stdout, stderr),
+        .passthrough => return runPassthrough(gpa, io, dir, args, stdout, stderr, parent_env),
         .version => {
             // stdout stays the policy-only version text; discovered Zig status
             // is environment information on stderr and never makes `version` fatal.
             try stdout.writeAll(zentinel.version_text);
-            if (try zentinel.zig_version.statusLine(gpa, discoverZig(gpa, io))) |line| {
+            if (try zentinel.zig_version.statusLine(gpa, discoverZig(gpa, io, dir, parent_env))) |line| {
                 try stderr.print("{s}\n", .{line});
             }
             return 0;
@@ -40,7 +40,7 @@ pub fn run(
             const result = try zentinel.check_command.run(gpa, .{
                 .config_source = readResolvedConfig(gpa, io, dir, resolved),
                 .config_path = resolved,
-                .zig = discoverZig(gpa, io),
+                .zig = discoverZigAtRoot(gpa, io, dir, globals.root, parent_env),
             });
             if (result.stdout.len > 0) try stdout.writeAll(result.stdout);
             if (result.code.len > 0) {
@@ -51,11 +51,11 @@ pub fn run(
             return result.exit_code;
         },
         .run => |inv| return runRun(gpa, io, dir, inv, stdout, stderr, parent_env),
-        .list_mutants => |inv| return runListMutants(gpa, io, dir, inv, stdout, stderr),
+        .list_mutants => |inv| return runListMutants(gpa, io, dir, inv, stdout, stderr, parent_env),
         .doctest => |inv| return runDoctest(gpa, io, dir, inv, stdout, stderr, parent_env),
-        .explain => |inv| return runAiCommand(gpa, io, dir, inv, .explain, stdout, stderr),
-        .suggest => |inv| return runAiCommand(gpa, io, dir, inv, .suggest, stdout, stderr),
-        .review_tests => |inv| return runAiCommand(gpa, io, dir, inv, .review_tests, stdout, stderr),
+        .explain => |inv| return runAiCommand(gpa, io, dir, inv, .explain, stdout, stderr, parent_env),
+        .suggest => |inv| return runAiCommand(gpa, io, dir, inv, .suggest, stdout, stderr, parent_env),
+        .review_tests => |inv| return runAiCommand(gpa, io, dir, inv, .review_tests, stdout, stderr, parent_env),
         .command_help => |topic| {
             // `<command> --help`: deterministic usage block on stdout, exit 0,
             // before any command-local option parsing (docs/CLI_SPEC.md).
@@ -74,6 +74,7 @@ fn runPassthrough(
     args: []const []const u8,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
+    parent_env: *const std.process.Environ.Map,
 ) !u8 {
     const config_exists = blk: {
         dir.access(io, config_path, .{}) catch break :blk false;
@@ -96,7 +97,12 @@ fn runPassthrough(
             return 2;
         }
         const name = inferProjectName(gpa, io, dir, outcome.init_name);
-        const text = try zentinel.initConfigText(gpa, outcome.init_test_command, name);
+        const base = try zentinel.initConfigText(gpa, outcome.init_test_command, name);
+        // Declare the project's own toolchain when it is an older supported
+        // target, so `init` then `run` works without a hand edit (ADR-0010).
+        // Only a supported version is ever written; the default is native.
+        const discovered = zentinel.zig_version.supportedLabel(discoverZig(gpa, io, dir, parent_env));
+        const text = try zentinel.initConfigZigVersion(gpa, base, discovered);
         try dir.writeFile(io, .{ .sub_path = config_path, .data = text });
     }
 
@@ -169,11 +175,34 @@ fn readResolvedConfig(gpa: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, path:
     return dir.readFileAlloc(io, path, gpa, read_limit) catch null;
 }
 
+/// Bound on `zig version` output: a version string is a few dozen bytes, so
+/// anything larger is not a Zig toolchain and is classified as not found.
+const zig_version_output_limit = std.Io.Limit.limited(4096);
+
 /// Run `zig version` and classify the result. Any failure to obtain a version
-/// (executable missing, non-zero exit, empty output) is reported as not found.
-fn discoverZig(gpa: std.mem.Allocator, io: std.Io) zentinel.zig_version.Discovery {
+/// (executable missing, non-zero exit, empty or oversized output) is reported as
+/// not found.
+///
+/// Discovery runs Zig the way test commands do (ADR-0010): with cwd = the project
+/// root `cwd_dir` and the minimal command environment built from `parent_env`
+/// (docs/SANDBOX_SECURITY.md). Otherwise a per-directory toolchain shim, or a
+/// `--root` different from the process cwd, could validate and record one
+/// compiler while the tests run another, and the full developer environment
+/// would leak into the probe.
+fn discoverZig(
+    gpa: std.mem.Allocator,
+    io: std.Io,
+    cwd_dir: std.Io.Dir,
+    parent_env: *const std.process.Environ.Map,
+) zentinel.zig_version.Discovery {
+    var env = zentinel.runner.minimalEnviron(gpa, parent_env) catch return .not_found;
+    defer env.deinit();
     const result = std.process.run(gpa, io, .{
         .argv = &.{ "zig", "version" },
+        .cwd = .{ .dir = cwd_dir },
+        .environ_map = &env,
+        .stdout_limit = zig_version_output_limit,
+        .stderr_limit = zig_version_output_limit,
         .timeout = .{ .duration = .{ .raw = std.Io.Duration.fromMilliseconds(5000), .clock = .awake } },
     }) catch return .not_found;
     switch (result.term) {
@@ -183,6 +212,29 @@ fn discoverZig(gpa: std.mem.Allocator, io: std.Io) zentinel.zig_version.Discover
     const trimmed = std.mem.trim(u8, result.stdout, " \t\r\n");
     if (trimmed.len == 0) return .not_found;
     return .{ .version = trimmed };
+}
+
+/// `discoverZig` from the selected `--root`, for commands that run before the
+/// config's effective project root is resolved. Falls back to `dir` (the process
+/// cwd) when the root cannot be opened; the command reports that failure itself.
+fn discoverZigAtRoot(
+    gpa: std.mem.Allocator,
+    io: std.Io,
+    dir: std.Io.Dir,
+    root: []const u8,
+    parent_env: *const std.process.Environ.Map,
+) zentinel.zig_version.Discovery {
+    var root_dir = dir.openDir(io, root, .{}) catch return discoverZig(gpa, io, dir, parent_env);
+    defer root_dir.close(io);
+    return discoverZig(gpa, io, root_dir, parent_env);
+}
+
+/// Stderr hint after a backend parse error on a target older than Zig 0.15
+/// (ADR-0010): zentinel parses with the native 0.16 grammar, which no longer
+/// accepts `usingnamespace` or `async`/`await` that such targets may still use.
+fn writeLegacyGrammarHint(stderr: *std.Io.Writer, target_zig: []const u8) !void {
+    if (!zentinel.zig_version.predatesNativeGrammar(target_zig)) return;
+    try stderr.print("note: zentinel parses sources with the Zig {s} grammar, which no longer accepts `usingnamespace` or `async`/`await` (valid in Zig {s}); add files that use them to [project] exclude\n", .{ zentinel.zig_version.supported_version, target_zig });
 }
 
 // --- `zentinel run` (Phase 1) ----------------------------------------------
@@ -744,14 +796,6 @@ fn runRun(
         return 2;
     };
 
-    const zig = discoverZig(gpa, io);
-    const fatal_zig = try zentinel.zig_version.fatalStatusLine(gpa, zig);
-    if (fatal_zig.len > 0) {
-        try stderr.print("{s}\n", .{fatal_zig});
-        return zentinel.zig_version.failureExit(zig);
-    }
-    const zig_label = zentinel.zig_version.supportedLabel(zig).?;
-
     var selected_root_dir = try dir.openDir(io, inv.globals.root, .{ .iterate = true });
     defer selected_root_dir.close(io);
     var effective_root_dir: ?std.Io.Dir = null;
@@ -767,6 +811,16 @@ fn runRun(
         };
     }
     const root_dir = effective_root_dir orelse selected_root_dir;
+
+    // Discover Zig exactly as the baseline will run it (cwd = project root,
+    // minimal environment) and require it to be the declared target (ADR-0010).
+    const zig = discoverZig(gpa, io, root_dir, parent_env);
+    const fatal_zig = try zentinel.zig_version.fatalStatusLine(gpa, zig, cfg.zig_version);
+    if (fatal_zig.len > 0) {
+        try stderr.print("{s}\n", .{fatal_zig});
+        return zentinel.zig_version.failureExit(zig, cfg.zig_version);
+    }
+    const zig_label = zentinel.zig_version.supportedLabel(zig).?;
 
     const discovered = try zentinel.project_model.discover(gpa, io, root_dir, cfg.include, cfg.exclude);
     var files: std.ArrayList(zentinel.run_command.FileSource) = .empty;
@@ -854,6 +908,7 @@ fn runRun(
             } else {
                 try stderr.writeAll("error[ZNTL_BACKEND_PARSE_ERROR]: could not parse one or more source files\n");
             }
+            try writeLegacyGrammarHint(stderr, cfg.zig_version);
             return 2;
         },
         error.InvalidCandidate => {
@@ -969,6 +1024,7 @@ fn runListMutants(
     inv: zentinel.RunInvocation,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
+    parent_env: *const std.process.Environ.Map,
 ) !u8 {
     // Extract the experimental `--backend <ast|zir>` opt-in here in the
     // adapter: the frozen list-mutants parser owns only
@@ -1045,6 +1101,7 @@ fn runListMutants(
             } else {
                 try stderr.writeAll("error[ZNTL_BACKEND_PARSE_ERROR]: could not parse one or more source files\n");
             }
+            try writeLegacyGrammarHint(stderr, cfg.zig_version);
             return 2;
         },
         error.InvalidCandidate => {
@@ -1062,7 +1119,7 @@ fn runListMutants(
         // comparison mutation sites recognized from the cmp_* instructions; other
         // operators become out-of-report diagnostics. The stable AST default and the
         // `run` path are unaffected.
-        const zig_disc = discoverZig(gpa, io);
+        const zig_disc = discoverZig(gpa, io, root_dir, parent_env);
         const listing = zentinel.zir_backend.listFromTrees(gpa, cfg, zig_disc, files.items, candidates, backend) catch |err| switch (err) {
             error.OutOfMemory => return err,
             error.ExperimentalBackendNotEnabled => {
@@ -1181,6 +1238,7 @@ fn runAiCommand(
     flow: zentinel.ai.command.Flow,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
+    parent_env: *const std.process.Environ.Map,
 ) !u8 {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -1216,7 +1274,7 @@ fn runAiCommand(
         return aiOptionError(stderr, try std.fmt.allocPrint(arena, "{s} must stay within the project root", .{opt}));
     }
 
-    const ai_cfg = (try aiSettings(arena, gpa, io, dir, inv.globals, stderr)) orelse return 2;
+    const ai_cfg = (try aiSettings(arena, gpa, io, dir, inv.globals, stderr, parent_env)) orelse return 2;
 
     var roots = (try openEffectiveProjectRoot(io, dir, inv.globals.root, ai_cfg.project_root, stderr)) orelse return 2;
     defer roots.close(io);
@@ -1276,8 +1334,9 @@ fn aiSettings(
     dir: std.Io.Dir,
     globals: zentinel.Globals,
     stderr: *std.Io.Writer,
+    parent_env: *const std.process.Environ.Map,
 ) !?AiCliSettings {
-    const zig_label: []const u8 = zentinel.zig_version.supportedLabel(discoverZig(gpa, io)) orelse "unknown";
+    const zig_label: []const u8 = zentinel.zig_version.supportedLabel(discoverZigAtRoot(gpa, io, dir, globals.root, parent_env)) orelse "unknown";
     var settings = zentinel.ai.command.Settings{
         .ai_enabled = false,
         .config_mode = .disabled,
@@ -1330,6 +1389,7 @@ fn runDoctestAi(
     flow: zentinel.ai.doctest_command.Flow,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
+    parent_env: *const std.process.Environ.Map,
 ) !u8 {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -1384,7 +1444,7 @@ fn runDoctestAi(
         if (zentinel.config.isOutsideRoot(d)) return aiOptionError(stderr, "documentation path must stay within the project root");
     }
 
-    const ai_cfg = (try aiSettings(arena, gpa, io, dir, inv.globals, stderr)) orelse return 2;
+    const ai_cfg = (try aiSettings(arena, gpa, io, dir, inv.globals, stderr, parent_env)) orelse return 2;
 
     // A required positional missing (doc-path for suggest, case-ref for explain /
     // review-snapshot) is a CLI usage error, surfaced like the top-level AI commands'
@@ -1450,6 +1510,7 @@ fn runDoctestSurvivorAi(
     inv: zentinel.RunInvocation,
     stdout: *std.Io.Writer,
     stderr: *std.Io.Writer,
+    parent_env: *const std.process.Environ.Map,
 ) !u8 {
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
@@ -1483,7 +1544,7 @@ fn runDoctestSurvivorAi(
         return aiOptionError(stderr, try std.fmt.allocPrint(arena, "{s} must stay within the project root", .{opt}));
     }
 
-    const ai_cfg = (try aiSettings(arena, gpa, io, dir, inv.globals, stderr)) orelse return 2;
+    const ai_cfg = (try aiSettings(arena, gpa, io, dir, inv.globals, stderr, parent_env)) orelse return 2;
 
     var roots = (try openEffectiveProjectRoot(io, dir, inv.globals.root, ai_cfg.project_root, stderr)) orelse return 2;
     defer roots.close(io);
@@ -1524,11 +1585,11 @@ fn runDoctest(
     // suggest flow instead of being hijacked by `--mutate`.
     switch (zentinel.doctest_command.route(inv.args)) {
         .mutate => return runDoctestMutate(gpa, io, dir, inv, stdout, stderr, parent_env),
-        .explain => return runDoctestAi(gpa, io, dir, inv, .explain_doctest_failure, stdout, stderr),
-        .suggest => return runDoctestAi(gpa, io, dir, inv, .suggest_doctest, stdout, stderr),
-        .review_snapshot => return runDoctestAi(gpa, io, dir, inv, .review_snapshot, stdout, stderr),
-        .suggest_missing => return runDoctestAi(gpa, io, dir, inv, .suggest_missing_doctests, stdout, stderr),
-        .explain_survivor => return runDoctestSurvivorAi(gpa, io, dir, inv, stdout, stderr),
+        .explain => return runDoctestAi(gpa, io, dir, inv, .explain_doctest_failure, stdout, stderr, parent_env),
+        .suggest => return runDoctestAi(gpa, io, dir, inv, .suggest_doctest, stdout, stderr, parent_env),
+        .review_snapshot => return runDoctestAi(gpa, io, dir, inv, .review_snapshot, stdout, stderr, parent_env),
+        .suggest_missing => return runDoctestAi(gpa, io, dir, inv, .suggest_missing_doctests, stdout, stderr, parent_env),
+        .explain_survivor => return runDoctestSurvivorAi(gpa, io, dir, inv, stdout, stderr, parent_env),
         .parse => {},
     }
 
@@ -1547,17 +1608,19 @@ fn runDoctest(
     const doc_file = options.file orelse default_doctest_file;
     const cfg = (try doctestConfigOrDefault(gpa, io, dir, inv.globals, stderr)) orelse return 2;
 
-    const zig = discoverZig(gpa, io);
-    const fatal_zig = try zentinel.zig_version.fatalStatusLine(gpa, zig);
-    if (fatal_zig.len > 0) {
-        try stderr.print("{s}\n", .{fatal_zig});
-        return zentinel.zig_version.failureExit(zig);
-    }
-    const zig_label = zentinel.zig_version.supportedLabel(zig).?;
-
     var roots = (try openEffectiveProjectRoot(io, dir, inv.globals.root, cfg.project_root, stderr)) orelse return 2;
     defer roots.close(io);
     const root_dir = roots.dir();
+
+    // Doctest commands run from the project root, so discover Zig there too and
+    // require the declared target (ADR-0010).
+    const zig = discoverZig(gpa, io, root_dir, parent_env);
+    const fatal_zig = try zentinel.zig_version.fatalStatusLine(gpa, zig, cfg.zig_version);
+    if (fatal_zig.len > 0) {
+        try stderr.print("{s}\n", .{fatal_zig});
+        return zentinel.zig_version.failureExit(zig, cfg.zig_version);
+    }
+    const zig_label = zentinel.zig_version.supportedLabel(zig).?;
 
     if (zentinel.config.pathEscapesRoot(io, root_dir, doc_file)) {
         try stderr.writeAll("error[ZNTL_CLI_INVALID_OPTION]: --file must stay within the project root\n");
@@ -1729,16 +1792,17 @@ fn runDoctestMutate(
     // Opt-in: passing `--mutate` explicitly is the opt-in (the hardcoded
     // fixtures-only gate was retired, so it now runs over any --file documentation).
 
-    const zig = discoverZig(gpa, io);
-    const fatal_zig = try zentinel.zig_version.fatalStatusLine(gpa, zig);
-    if (fatal_zig.len > 0) {
-        try stderr.print("{s}\n", .{fatal_zig});
-        return zentinel.zig_version.failureExit(zig);
-    }
-
     var roots = (try openEffectiveProjectRoot(io, dir, inv.globals.root, cfg.project_root, stderr)) orelse return 2;
     defer roots.close(io);
     const root_dir = roots.dir();
+
+    const zig = discoverZig(gpa, io, root_dir, parent_env);
+    const fatal_zig = try zentinel.zig_version.fatalStatusLine(gpa, zig, cfg.zig_version);
+    if (fatal_zig.len > 0) {
+        try stderr.print("{s}\n", .{fatal_zig});
+        return zentinel.zig_version.failureExit(zig, cfg.zig_version);
+    }
+
     if (zentinel.config.pathEscapesRoot(io, root_dir, doc)) {
         try stderr.writeAll("error[ZNTL_CLI_INVALID_OPTION]: --file must stay within the project root\n");
         return 2;

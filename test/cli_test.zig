@@ -421,3 +421,24 @@ test "initConfigText substitutes the inferred project name and nothing else" {
     try std.testing.expect(std.mem.indexOf(u8, both, "name = \"myproj\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, both, "commands = [\"zig build test -Dfoo\"]") != null);
 }
+
+test "initConfigZigVersion writes a discovered in-range Zig version and nothing else" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const a = arena_state.allocator();
+
+    const text = try zentinel.initConfigZigVersion(a, zentinel.default_config, "0.13.0");
+    try std.testing.expect(std.mem.indexOf(u8, text, "[zig]\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "version = \"0.13.0\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "version = \"0.16.0\"") == null);
+    // The written config is valid and declares exactly the discovered version.
+    var diag: zentinel.config.Diagnostic = .{};
+    const cfg = try zentinel.config.load(a, text, &diag);
+    try std.testing.expectEqualStrings("0.13.0", cfg.zig_version);
+
+    // The native version, an out-of-range or a missing discovery keep the
+    // template byte-identical (the 0.16.0 default).
+    try std.testing.expectEqualStrings(zentinel.default_config, try zentinel.initConfigZigVersion(a, zentinel.default_config, "0.16.0"));
+    try std.testing.expectEqualStrings(zentinel.default_config, try zentinel.initConfigZigVersion(a, zentinel.default_config, "0.17.0"));
+    try std.testing.expectEqualStrings(zentinel.default_config, try zentinel.initConfigZigVersion(a, zentinel.default_config, null));
+}

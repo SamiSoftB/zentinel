@@ -44,3 +44,43 @@ jobs:
       - name: Run CI
         shell: bash
         run: scripts/ci.sh
+
+  target-zig-matrix:
+    # ADR-0010: zentinel builds with its native Zig (0.16.0) and mutation-tests
+    # projects on any supported target Zig (stable 0.13.x through 0.16.x). Build
+    # once natively, then make the target toolchain the active `zig` and run the
+    # end-to-end matrix against it (latest patch of each supported minor).
+    # Actions in this job are pinned to full commit SHAs (tag in the comment).
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ["0.13.0", "0.14.1", "0.15.2", "0.16.0"]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Install native Zig 0.16.0
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+          use-cache: false
+
+      - name: Build zentinel with the native toolchain
+        run: zig build
+
+      - name: Install target Zig ${{ matrix.target }}
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ matrix.target }}
+          use-cache: false
+
+      - name: Print active (target) Zig version
+        run: zig version
+
+      - name: End-to-end against the target toolchain
+        env:
+          TARGET_ZIG: ${{ matrix.target }}
+          ZENTINEL_BIN: ${{ github.workspace }}/zig-out/bin/zentinel
+        run: scripts/e2e-zig-matrix.sh "$TARGET_ZIG"

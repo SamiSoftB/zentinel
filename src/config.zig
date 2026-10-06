@@ -6,6 +6,7 @@
 // effects beyond the caller-provided arena.
 const std = @import("std");
 const toml = @import("config_toml.zig");
+const version_policy = @import("zig_version.zig");
 
 pub const Code = enum {
     parse_error,
@@ -353,9 +354,12 @@ pub fn load(arena: std.mem.Allocator, source: []const u8, diag: *Diagnostic) Err
     }
 
     // [zig]
-    const zig_version = try look.getString("zig", "version", "0.16.0", diag);
-    if (!std.mem.eql(u8, zig_version, "0.16.0")) {
-        return fail(diag, .invalid_value, "zig", "version", "only Zig 0.16.0 is supported");
+    // The target toolchain the project's tests run on (ADR-0010): an exact stable
+    // release inside the supported range, never an alias, defaulting to the
+    // native version. Discovery must later match it exactly.
+    const zig_version = try look.getString("zig", "version", version_policy.supported_version, diag);
+    if (!version_policy.isSupportedVersion(zig_version)) {
+        return fail(diag, .invalid_value, "zig", "version", "zig version must be an exact stable Zig release from 0.13.0 through 0.16.x, e.g. \"0.13.0\"");
     }
     const zig_modes = try look.getArray("zig", "modes", &.{"Debug"}, diag);
     // Multiple modes are accepted now that the safety-mode matrix exists (task

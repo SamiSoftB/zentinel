@@ -45,14 +45,15 @@ pub fn run(arena: std.mem.Allocator, input: Input) std.mem.Allocator.Error!Resul
         error.Invalid => return fail(cdiag.code.token(), try configMessage(arena, cdiag)),
     };
 
-    // 3. Zig version policy: missing or unsupported Zig is a fatal environment error.
-    const zstatus = zig_version.classify(input.zig);
+    // 3. Zig version policy: a missing or unsupported Zig, or a supported one
+    //    that is not the declared `[zig] version`, is a fatal environment error.
+    const zstatus = zig_version.classifyExpected(input.zig, cfg.zig_version);
     if (zstatus != .supported) {
         const detected = switch (input.zig) {
             .version => |v| v,
             .not_found => "",
         };
-        return fail(zig_version.codeFor(zstatus).token(), try zig_version.message(arena, zstatus, detected));
+        return fail(zig_version.codeFor(zstatus).token(), try zig_version.messageExpected(arena, zstatus, detected, cfg.zig_version));
     }
 
     // 4. Include/exclude paths must stay within the project root.

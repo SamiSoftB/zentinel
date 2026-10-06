@@ -306,6 +306,83 @@ test "a zig build test compile failure stays compile_error" {
     try expectEqual(report.FailureKind.compile_error, cr.failure_kind);
 }
 
+// --- Older target toolchains (ADR-0010: Zig 0.13 through 0.15) -----------------
+//
+// zentinel classifies the target toolchain's output, not its own, so the same
+// markers must hold for every supported target. Faithful excerpts captured from
+// real `zig build test` / `zig test` runs under Zig 0.13.0, 0.14.1, and 0.15.2
+// (absolute paths elided). The Build Summary shape differs from 0.16
+// (`; 1 failed; 0/1 tests passed; 1 failed` vs `(1 failed); 0/1 tests passed
+// (1 failed)`) but carries the same `tests passed` clause.
+
+const zig013_build_test_runtime_failure =
+    \\test
+    \\+- run test 0/1 passed, 1 failed
+    \\error: 'calc.test.add' failed: expected 5, found -1
+    \\src/calc.zig:8:5: 0x103d07f in test.add (test)
+    \\error: while executing test 'calc.test.add', the following test command failed:
+    \\Build Summary: 1/3 steps succeeded; 1 failed; 0/1 tests passed; 1 failed (disable with --summary none)
+;
+
+// A runtime panic: 0.13-0.15 still print a `tests passed` clause (here even
+// `1/1 tests passed`, because the crash is recorded on the step, not the test).
+const zig013_build_test_runtime_crash =
+    \\test
+    \\+- run test failure
+    \\thread 85 panic: index out of bounds: index 6, len 2
+    \\src/calc.zig:4:14: 0x103d11f in at (test)
+    \\error: while executing test 'calc.test.at', the following command terminated with signal 6 (expected exited with code 0):
+    \\Build Summary: 1/3 steps succeeded; 1 failed; 1/1 tests passed (disable with --summary none)
+;
+
+const zig014_build_test_compile_failure =
+    \\test
+    \\+- run test
+    \\   +- zig test Debug native 1 errors
+    \\src/calc.zig:4:16: error: use of undeclared identifier 'gone_identifier'
+    \\    return a + gone_identifier;
+    \\               ^~~~~~~~~~~~~~~
+    \\error: the following command failed with 1 compilation errors:
+    \\Build Summary: 0/3 steps succeeded; 1 failed
+;
+
+// Direct `zig test` crash on 0.13-0.15: no runner summary and no compile
+// diagnostic, so it conservatively stays a test failure (a kill).
+const zig015_direct_test_crash =
+    \\thread 295 panic: index out of bounds: index 6, len 2
+    \\src/calc.zig:4:14: 0x102c15f in at (calc.zig)
+    \\error: the following test command crashed:
+;
+
+test "older target toolchains: a zig build test runtime failure stays test_failure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cr = try classifyOne(arena.allocator(), outcome(1, false, false, "", zig013_build_test_runtime_failure));
+    try expectEqual(report.CommandStatus.failed, cr.status);
+    try expectEqual(report.FailureKind.test_failure, cr.failure_kind);
+}
+
+test "older target toolchains: a zig build test runtime panic stays test_failure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cr = try classifyOne(arena.allocator(), outcome(1, false, false, "", zig013_build_test_runtime_crash));
+    try expectEqual(report.FailureKind.test_failure, cr.failure_kind);
+}
+
+test "older target toolchains: a zig build test compile failure stays compile_error" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cr = try classifyOne(arena.allocator(), outcome(1, false, false, "", zig014_build_test_compile_failure));
+    try expectEqual(report.FailureKind.compile_error, cr.failure_kind);
+}
+
+test "older target toolchains: a direct zig test crash stays test_failure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cr = try classifyOne(arena.allocator(), outcome(1, false, false, "", zig015_direct_test_crash));
+    try expectEqual(report.FailureKind.test_failure, cr.failure_kind);
+}
+
 // --- Truthful minimal environment -------------------------------
 //
 // The report labels every command `environment_policy = minimal`; the real

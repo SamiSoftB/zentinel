@@ -259,6 +259,20 @@ pub fn initConfigText(arena: std.mem.Allocator, test_command: ?[]const u8, name_
     return text;
 }
 
+/// Substitute the `[zig] version` of a rendered init config with the Zig version
+/// `init` discovered, so `init` then `run` works on a project whose toolchain is
+/// an older supported target (ADR-0010). Only a supported, non-native version is
+/// written; null, the native version, or anything outside the target range keeps
+/// `text` unchanged (the native default). A supported version is digits and dots
+/// only, so the substitution stays a single injection-safe quoted value.
+pub fn initConfigZigVersion(arena: std.mem.Allocator, text: []const u8, discovered: ?[]const u8) ![]const u8 {
+    const v = discovered orelse return text;
+    if (!zig_version.isSupportedVersion(v) or std.mem.eql(u8, v, zig_version.supported_version)) return text;
+    const needle = "version = \"" ++ zig_version.supported_version ++ "\"";
+    const replacement = try std.fmt.allocPrint(arena, "version = \"{s}\"", .{v});
+    return replaceAlloc(arena, text, needle, replacement);
+}
+
 /// Deterministic, snapshot-tested `--help` output. Mirrors test/snapshots/cli_help.txt.
 pub const help_text =
     \\zentinel - Zig-native mutation testing
@@ -478,7 +492,7 @@ pub const default_config =
     \\
     \\# Zig toolchain policy.
     \\[zig]
-    \\# Only accepted Zig policy version for this zentinel release.
+    \\# Target Zig release (stable 0.13.0 through 0.16.x); must match `zig version`.
     \\version = "0.16.0"
     \\# Optimization/safety modes to run: Debug, ReleaseSafe, ReleaseFast, ReleaseSmall.
     \\modes = ["Debug"]

@@ -527,11 +527,13 @@ pub const ListError = error{ ExperimentalBackendNotEnabled, BackendNotImplemente
 /// 3a version guard: the ZIR path decodes `pl_node.src_node` offsets whose meaning is
 /// coupled to the exact Zig version (`backend_version` pins zig-0.16.0) -- a different
 /// toolchain shifts AstGen's node/instruction layout and would silently mis-resolve.
-/// True only when the discovered toolchain is exactly the pinned `supported_version`;
-/// `listFromTrees` declines with `error.UnsupportedZigVersion` otherwise. Pure and
-/// injectable: the adapter discovers the version, this classifies it.
+/// True only when the discovered toolchain is exactly the native `supported_version`;
+/// `listFromTrees` declines with `error.UnsupportedZigVersion` otherwise. Deliberately
+/// `isNative`, not `classify`: the supported *target* range (ADR-0010) is wider than
+/// what this version-coupled decoding can handle. Pure and injectable: the adapter
+/// discovers the version, this classifies it.
 pub fn toolchainSupported(discovery: zig_version.Discovery) bool {
-    return zig_version.classify(discovery) == .supported;
+    return zig_version.isNative(discovery);
 }
 
 /// Operators the ZIR backend lowers to real candidates (those ZIR represents as a

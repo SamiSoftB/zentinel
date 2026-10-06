@@ -1,0 +1,14 @@
+# Fixture metadata (ADR-0010), parsed by the in-tree TOML subset parser.
+# Portable across every supported target Zig (0.13 through 0.16); exercised per
+# toolchain by scripts/e2e-zig-matrix.sh.
+[fixture]
+name = "zig_compat_sample"
+description = "Portable build.zig and sources that build and test unchanged on Zig 0.13 through 0.16."
+
+[project]
+target_files = ["src/calc.zig"]
+test_command = "zig build test"
+
+[expect]
+operators = ["arithmetic_add_sub", "comparison_boundary"]
+outcome = "survived"

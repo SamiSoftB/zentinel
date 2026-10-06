@@ -127,6 +127,43 @@ test "explicit empty zig.modes is rejected, like empty test.commands" {
     try expectEqual(@as(usize, 2), multi.zig_modes.len);
 }
 
+test "zig.version defaults to the native 0.16.0" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var diag: config.Diagnostic = .{};
+    const cfg = try load(arena.allocator(), "", &diag);
+    try expectEqualStrings("0.16.0", cfg.zig_version);
+}
+
+test "zig.version accepts any stable release in the 0.13-0.16 target range" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    for ([_][]const u8{ "0.13.0", "0.14.0", "0.14.1", "0.15.1", "0.15.2", "0.16.0" }) |v| {
+        var diag: config.Diagnostic = .{};
+        const src = try std.fmt.allocPrint(a, "[zig]\nversion = \"{s}\"\n", .{v});
+        const cfg = try load(a, src, &diag);
+        try expectEqualStrings(v, cfg.zig_version);
+    }
+}
+
+test "zig.version outside the target range, a pre-release, or an alias is rejected" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    for ([_][]const u8{ "0.17.0", "0.12.1", "latest", "latest-stable", "0.15.0-dev.1+abc", "0.16" }) |v| {
+        var diag: config.Diagnostic = .{};
+        const src = try std.fmt.allocPrint(a, "[zig]\nversion = \"{s}\"\n", .{v});
+        try expectError(error.Invalid, load(a, src, &diag));
+        try expect(diag.code == .invalid_value);
+        try expectEqualStrings("zig", diag.section);
+        try expectEqualStrings("version", diag.key);
+        try expect(std.mem.indexOf(u8, diag.message, "0.13.0") != null);
+    }
+}
+
 test "duplicate keys in the same section are rejected, not silently first-wins" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

@@ -149,10 +149,30 @@ test "check treats missing Zig as a fatal environment error" {
 test "check treats unsupported Zig as a fatal environment error" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const r = try runCheck(arena.allocator(), valid_cfg, .{ .version = "0.15.1" });
+    const r = try runCheck(arena.allocator(), valid_cfg, .{ .version = "0.17.0" });
     try expectEqual(@as(u8, 2), r.exit_code);
     try expectEqualStrings("ZNTL_ZIG_UNSUPPORTED_VERSION", r.code);
-    try expect(std.mem.indexOf(u8, r.message, "0.15.1") != null);
+    try expect(std.mem.indexOf(u8, r.message, "0.17.0") != null);
+    try expect(std.mem.indexOf(u8, r.message, "0.13.x through 0.16.x") != null);
+}
+
+test "check passes for an older target Zig that matches the declared [zig] version" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const r = try runCheck(arena.allocator(), "[zig]\nversion = \"0.14.1\"\n", .{ .version = "0.14.1" });
+    try expectEqual(@as(u8, 0), r.exit_code);
+    try expectEqualStrings("", r.code);
+}
+
+test "check rejects a supported Zig that differs from the declared [zig] version" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // valid_cfg declares no version, so the native 0.16.0 default applies; a
+    // discovered 0.13.0 is a supported target but not the declared one.
+    const r = try runCheck(arena.allocator(), valid_cfg, .{ .version = "0.13.0" });
+    try expectEqual(@as(u8, 2), r.exit_code);
+    try expectEqualStrings("ZNTL_ZIG_UNSUPPORTED_VERSION", r.code);
+    try expect(std.mem.indexOf(u8, r.message, "0.13.0") != null);
     try expect(std.mem.indexOf(u8, r.message, "0.16.0") != null);
 }
 

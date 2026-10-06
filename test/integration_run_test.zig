@@ -775,3 +775,165 @@ test "init --name overrides any inference in the written config" {
     try expect(std.mem.indexOf(u8, toml, "name = \"explicit_name\"") != null);
     try expect(std.mem.indexOf(u8, toml, "ignored_zon_name") == null);
 }
+
+// --- Target toolchain discovery (ADR-0010) ------------------------------------
+//
+// `zig version` must be discovered the way test commands run Zig: from the
+// effective project root, with the minimal command environment. Otherwise a
+// per-directory toolchain shim (anyzig, or any wrapper keyed on the project) or a
+// `--root` that differs from the process cwd validates one compiler while the
+// tests run another. These tests put a stub `zig` first on PATH that answers
+// `0.14.1` only when its cwd holds a marker file, and that fails outright if a
+// canary variable from the parent environment leaks through.
+
+const stub_marker = ".stub-zig-0.14.1";
+
+const stub_zig_script =
+    \\#!/bin/sh
+    \\# Stub `zig` for discovery tests (test/integration_run_test.zig).
+    \\if [ -n "$ZNTL_DISCOVERY_CANARY" ]; then
+    \\  echo "parent environment leaked into zig discovery" >&2
+    \\  exit 1
+    \\fi
+    \\if [ "$1" = "version" ]; then
+    \\  if [ -f ./.stub-zig-0.14.1 ]; then echo 0.14.1; else echo 0.16.0; fi
+    \\  exit 0
+    \\fi
+    \\exit 1
+    \\
+;
+
+/// Install the stub `zig` under `<tmp>/bin` and return a child environment whose
+/// PATH resolves it first, plus a canary that must never reach discovery.
+fn stubZigEnv(a: std.mem.Allocator, io: std.Io, tmp: std.testing.TmpDir) !std.process.Environ.Map {
+    try tmp.dir.createDirPath(io, "bin");
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "bin/zig",
+        .data = stub_zig_script,
+        .flags = .{ .permissions = .executable_file },
+    });
+    var env = std.process.Environ.Map.init(a);
+    try env.put("PATH", try std.fmt.allocPrint(a, "{s}:/usr/bin:/bin", .{try absTmpPath(a, tmp, "bin")}));
+    try env.put("ZNTL_DISCOVERY_CANARY", "1");
+    return env;
+}
+
+test "zig discovery runs in the project root with the minimal environment" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest; // POSIX stub script
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var env = try stubZigEnv(a, io, tmp);
+
+    // The project declares Zig 0.14.1 and carries the marker; the process cwd
+    // (the tmp dir) does not, so discovery only matches when it runs in `proj`.
+    try tmp.dir.createDirPath(io, "proj");
+    try tmp.dir.writeFile(io, .{ .sub_path = "proj/" ++ stub_marker, .data = "" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "proj/zentinel.toml", .data = "[zig]\nversion = \"0.14.1\"\n" });
+
+    const exe_path = try exePath(a);
+    const result = try std.process.run(a, io, .{
+        .argv = &.{ exe_path, "--root", "proj", "check" },
+        .cwd = .{ .dir = tmp.dir },
+        .environ_map = &env,
+        .stdout_limit = read_limit,
+        .stderr_limit = read_limit,
+    });
+    switch (result.term) {
+        .exited => |code| {
+            if (code != 0) std.debug.print("check stderr:\n{s}\n", .{result.stderr});
+            try expectEqual(@as(u8, 0), code);
+        },
+        else => return error.BinaryCrashed,
+    }
+}
+
+test "init writes the discovered in-range Zig version into the config" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest; // POSIX stub script
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    var env = try stubZigEnv(a, io, tmp);
+    try tmp.dir.writeFile(io, .{ .sub_path = stub_marker, .data = "" });
+
+    const exe_path = try exePath(a);
+    const result = try std.process.run(a, io, .{
+        .argv = &.{ exe_path, "init" },
+        .cwd = .{ .dir = tmp.dir },
+        .environ_map = &env,
+        .stdout_limit = read_limit,
+        .stderr_limit = read_limit,
+    });
+    switch (result.term) {
+        .exited => |code| try expectEqual(@as(u8, 0), code),
+        else => return error.BinaryCrashed,
+    }
+    const toml = try tmp.dir.readFileAlloc(io, zentinel.config_default_path, a, read_limit);
+    try expect(std.mem.indexOf(u8, toml, "version = \"0.14.1\"") != null);
+    try expect(std.mem.indexOf(u8, toml, "version = \"0.16.0\"") == null);
+}
+
+test "a 0.13 project using usingnamespace fails fast with an exclude hint" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    // Valid Zig 0.13, but `usingnamespace` was removed in 0.15, so zentinel's
+    // built-in 0.16 parser rejects it.
+    try tmp.dir.createDirPath(io, "src");
+    try tmp.dir.writeFile(io, .{ .sub_path = "src/legacy.zig", .data = "pub usingnamespace @import(\"std\");\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "zentinel.toml", .data = "[zig]\nversion = \"0.13.0\"\n" });
+
+    const exe_path = try exePath(a);
+    const result = try std.process.run(a, io, .{
+        .argv = &.{ exe_path, "list-mutants" },
+        .cwd = .{ .dir = tmp.dir },
+        .stdout_limit = read_limit,
+        .stderr_limit = read_limit,
+    });
+    switch (result.term) {
+        .exited => |code| try expectEqual(@as(u8, 2), code),
+        else => return error.BinaryCrashed,
+    }
+    try expect(std.mem.indexOf(u8, result.stderr, "ZNTL_BACKEND_PARSE_ERROR") != null);
+    try expect(std.mem.indexOf(u8, result.stderr, "src/legacy.zig") != null);
+    try expect(std.mem.indexOf(u8, result.stderr, "[project] exclude") != null);
+}
+
+test "a native-grammar target gets no exclude hint on a parse error" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "src");
+    try tmp.dir.writeFile(io, .{ .sub_path = "src/broken.zig", .data = "pub fn f( {\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "zentinel.toml", .data = "[zig]\nversion = \"0.16.0\"\n" });
+
+    const exe_path = try exePath(a);
+    const result = try std.process.run(a, io, .{
+        .argv = &.{ exe_path, "list-mutants" },
+        .cwd = .{ .dir = tmp.dir },
+        .stdout_limit = read_limit,
+        .stderr_limit = read_limit,
+    });
+    switch (result.term) {
+        .exited => |code| try expectEqual(@as(u8, 2), code),
+        else => return error.BinaryCrashed,
+    }
+    try expect(std.mem.indexOf(u8, result.stderr, "ZNTL_BACKEND_PARSE_ERROR") != null);
+    try expect(std.mem.indexOf(u8, result.stderr, "[project] exclude") == null);
+}

@@ -290,6 +290,14 @@ test "listFromTrees declines on a non-pinned toolchain and accepts Zig 0.16.0" {
     try std.testing.expectError(error.UnsupportedZigVersion, zir.listFromTrees(arena, cfg, nightly, &files, ast, "zir"));
     try std.testing.expectError(error.UnsupportedZigVersion, zir.listFromTrees(arena, cfg, .not_found, &files, ast, "zir"));
 
+    // Supported *target* toolchains (ADR-0010) are still not the native version:
+    // widening the target range must never widen the version-coupled ZIR gate.
+    for ([_][]const u8{ "0.13.0", "0.14.1", "0.15.2", "0.16.1" }) |v| {
+        const target = zentinel.zig_version.Discovery{ .version = v };
+        try std.testing.expect(!zir.toolchainSupported(target));
+        try std.testing.expectError(error.UnsupportedZigVersion, zir.listFromTrees(arena, cfg, target, &files, ast, "zir"));
+    }
+
     // The pinned version is accepted and the `<` is lowered to a real ZIR candidate.
     const pinned = zentinel.zig_version.Discovery{ .version = zentinel.zig_version.supported_version };
     const listing = try zir.listFromTrees(arena, cfg, pinned, &files, ast, "zir");
